@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "_comment": "super agent 的本地自动推进项目列表。repo 必须是含 .planning/status.json 的 autonomous_studio 受管项目。",
+  "projects": [
+    {
+      "id": "demo",
+      "repo": "/tmp/studio-bridge-demo",
+      "enabled": false,
+      "maxPerDay": 6,
+      "allowAutoDevelopment": false
+    }
+  ]
+}
