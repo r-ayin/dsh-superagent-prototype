@@ -4,8 +4,9 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 W=/tmp/studio-bridge-selftest
 FAIL=0
+PASS=0
 
-ok()   { echo "  PASS  $1"; }
+ok()   { echo "  PASS  $1"; PASS=$((PASS+1)); }
 bad()  { echo "  FAIL  $1"; FAIL=$((FAIL+1)); }
 
 rm -rf "$W"; mkdir -p "$W/.planning"
@@ -90,5 +91,52 @@ json.dump(s,open(p,"w"))
 PY
 python3 "$HERE/dispatch.py" "$W/reg.json" | grep -q 'human-required:development' && ok "开发阶段默认转人工" || bad "开发阶段门禁失效"
 
+echo "== 8. 门禁：maxPerDay=0 应熔断 =="
+W2=/tmp/studio-bridge-selftest2
+rm -rf "$W2"; mkdir -p "$W2/.planning"
+cat > "$W2/.planning/status.json" <<'J'
+{"currentStage":"requirements","completedStages":[],"lastUpdated":"2026-11-03T00:00:00+08:00",
+ "taskType":"new-feature","locked":true,"engine":{"autoAdvance":true,"stageArtifacts":{}}}
+J
+cat > "$W2/reg.json" <<'J'
+{"version":1,"projects":[{"id":"toy2","repo":"/tmp/studio-bridge-selftest2","enabled":true,"maxPerDay":0}]}
+J
+python3 "$HERE/dispatch.py" "$W2/reg.json" | grep -q 'daily-cap' && ok "日上限熔断生效" || bad "日上限熔断失效"
+
+echo "== 9. partial 结果不推进阶段、只记阻塞 =="
+python3 "$HERE/dispatch.py" "$W2/reg.json" > /dev/null 2>&1   # 先放开上限再造一条
+python3 - "$W2/reg.json" <<'J'
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); d["projects"][0]["maxPerDay"]=6; json.dump(d,open(p,"w"))
+J
+python3 "$HERE/dispatch.py" "$W2/reg.json" > /dev/null
+T2=$(ls "$W2/.planning/pending/"*.task.md 2>/dev/null | head -1)
+printf 'STATUS: partial\n\n做了一半，缺上游 requirements.md\n' > "${T2%.task.md}.result.md"
+python3 "$HERE/collect.py" "$W2/reg.json" > /dev/null
+python3 - "$W2/.planning/status.json" <<'J' && ok "partial 不推进且记 blockedReasons" || bad "partial 处理错误"
+import json,sys
+s=json.load(open(sys.argv[1]))
+assert s["currentStage"]=="requirements", s["currentStage"]
+assert s["engine"].get("blockedReasons"), "blockedReasons 为空"
+J
+
+echo "== 10. 多项目互不影响 =="
+cat > /tmp/studio-bridge-multi.json <<'J'
+{"version":1,"projects":[
+ {"id":"toy","repo":"/tmp/studio-bridge-selftest","enabled":true,"maxPerDay":6},
+ {"id":"toy2","repo":"/tmp/studio-bridge-selftest2","enabled":true,"maxPerDay":6},
+ {"id":"ghost","repo":"/tmp/does-not-exist","enabled":true}
+]}
+J
+OUT3=$(python3 "$HERE/dispatch.py" /tmp/studio-bridge-multi.json)
+echo "$OUT3" | grep -q '"project": "ghost"' && echo "$OUT3" | grep -q 'repo-missing' && ok "缺失仓库被跳过不报错" || bad "缺失仓库处理异常"
+python3 - "$HERE/registry.json" <<'J' > /tmp/reg-check.txt 2>&1 && ok "status_report 可跑" || bad "status_report 失败"
+import subprocess,sys
+r=subprocess.run([sys.executable, sys.argv[1].replace("registry.json","status_report.py"), "/tmp/studio-bridge-multi.json"],capture_output=True,text=True)
+print(r.stdout)
+assert r.returncode==0
+assert "可自动推进" in r.stdout
+J
+
 echo
-if [ "$FAIL" -eq 0 ]; then echo "ALL PASS (7/7)"; exit 0; else echo "FAILED: $FAIL"; exit 1; fi
+if [ "$FAIL" -eq 0 ]; then echo "ALL PASS ($PASS checks, 0 failed)"; exit 0; else echo "FAILED: $FAIL of $((PASS+FAIL))"; exit 1; fi

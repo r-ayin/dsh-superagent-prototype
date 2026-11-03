@@ -60,3 +60,29 @@ bash selftest.sh                     # 端到端自测（玩具项目，不碰�
 > `python3 scripts/studio-bridge/collect.py`。
 
 这样任务书数量增长不会带来 automation 数量增长。
+
+## 文件一览
+
+| 文件 | 作用 |
+|---|---|
+| `dispatch.py` | 心跳：读状态 → 过门禁 → 渲染任务书 → 幂等投递 |
+| `collect.py` | 回收：读 result → 回写状态机 → 归档 |
+| `run_once.sh` | 一次完整 tick：collect → dispatch → status_report（挂 cron 的入口） |
+| `status_report.py` | 看板：所有项目的阶段 / 卡点 / 下一步 |
+| `automation_prompt.md` | 可直接粘进 super agent automation 的 prompt 模板 |
+| `selftest.sh` | 端到端自测，10 组用例 |
+| `registry.json` | 受管项目列表 |
+
+## 最小接入
+
+```bash
+cp registry.json registry.mine.json
+# 编辑 registry.mine.json：把 repo 指向你自己的 autonomous_studio 项目
+bash run_once.sh registry.mine.json      # 手动 tick 一次看效果
+python3 status_report.py registry.mine.json
+
+# 挂 cron（每 15 分钟）
+*/15 * * * * /abs/path/scripts/studio-bridge/run_once.sh /abs/path/registry.mine.json
+```
+
+worker 侧见 `automation_prompt.md`。
