@@ -31,6 +31,12 @@ prompt 用下面这段。任务书数量增长不会带来 automation 数量增�
    STATUS: failed    （做不了，说明原因）
    后面跟证据：文件路径:行号，或命令输出。
 
+   如果产出里还有**必须由人拍板、你无权决定**的问题，紧跟一行：
+
+       OPEN_QUESTIONS: <数量>
+
+   阶段会停在原地等你答复，而不是带着未决问题进入下一阶段。
+
 5. 再跑一次回收：
    bash <BRIDGE_DIR>/collect.py <BRIDGE_DIR>/registry.json
 

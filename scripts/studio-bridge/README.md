@@ -43,6 +43,8 @@ bash selftest.sh                     # 端到端自测（玩具项目，不碰�
 | `routeHealth.score < 5` 或 `correctionPending` | 路线修正中，不投递 |
 | 同 project+stage 已有未消费任务书 | 不重复投（幂等） |
 | 当日已投递 ≥ `maxPerDay` | 熔断转人工 |
+| `engine.blockedReasons` 非空 | 全停，不再重投（partial/failed/待决问题都要人处置） |
+| result 里 `OPEN_QUESTIONS: n` 且 n>0 | 停在当前阶段，标 `awaiting-decision`，不推进 |
 
 硬红线（不因本脚本而放松）：**不自动 git push、不自动执行部署阶段**。
 
@@ -86,3 +88,25 @@ python3 status_report.py registry.mine.json
 ```
 
 worker 侧见 `automation_prompt.md`。
+
+## 卡住之后怎么恢复
+
+`blockedReasons` 非空会让 dispatch 完全停手——这是故意的：**同一阶段的任务书被
+无限重投**比停机更糟。人工处置后清空即可续跑：
+
+```bash
+python3 - <<'J'
+import json
+p = "<repo>/.planning/status.json"
+s = json.load(open(p))
+s["engine"]["blockedReasons"] = []
+s["engine"].pop("openQuestions", None)
+json.dump(s, open(p, "w"), ensure_ascii=False, indent=2)
+J
+```
+
+## 为什么要有 OPEN_QUESTIONS
+
+`STATUS: ok` 只说明「该产的东西产出完了」，不说明「没有遗留问题」。需求阶段最常见的
+是产出完整但带若干等产品拍板的问题；照常推进到 prd，下游就建在未定的前提上。
+result 首部声明 `OPEN_QUESTIONS: 5` 就会停在原地，等答案再走。

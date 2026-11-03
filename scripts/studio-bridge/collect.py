@@ -26,6 +26,7 @@ ARTIFACT_KEY = {
 }
 
 STATUS_RE = re.compile(r"^\s*STATUS:\s*(ok|partial|failed)", re.IGNORECASE)
+OPENQ_RE = re.compile(r"^\s*OPEN_QUESTIONS:\s*(\d+)", re.IGNORECASE)
 
 
 def now_iso():
@@ -49,18 +50,33 @@ def parse_name(fn):
     return parts[0], parts[1]
 
 
-def first_status(path):
+def parse_result(path):
+    """返回 (verdict, open_questions)。open_questions 缺省为 0。
+
+    result 首部可声明 `OPEN_QUESTIONS: <n>`：本阶段产出里还有 n 个必须由人
+    拍板的问题。n > 0 时阶段不得自动推进，否则把未决问题带进下游阶段。
+    """
+    verdict, openq = None, 0
     try:
         with open(path, encoding="utf-8") as f:
             for i, line in enumerate(f):
-                if i > 10:
+                if i > 15:
                     break
-                m = STATUS_RE.match(line)
+                if verdict is None:
+                    m = STATUS_RE.match(line)
+                    if m:
+                        verdict = m.group(1).lower()
+                        continue
+                m = OPENQ_RE.match(line)
                 if m:
-                    return m.group(1).lower()
+                    openq = int(m.group(1))
     except OSError:
         pass
-    return None
+    return verdict, openq
+
+
+def first_status(path):
+    return parse_result(path)[0]
 
 
 def collect_one(repo, project, fn):
@@ -78,8 +94,17 @@ def collect_one(repo, project, fn):
 
     eng = status.setdefault("engine", {})
     cur = status.get("currentStage", "")
+    verdict, openq = parse_result(res_path)
 
-    if verdict == "ok":
+    if verdict == "ok" and openq > 0:
+        # 产出里有未决问题：留在本阶段，交人拍板，不推进
+        reasons = eng.setdefault("blockedReasons", [])
+        msg = "awaiting-decision: %s 有 %d 个待决问题" % (stage, openq)
+        if msg not in reasons:
+            reasons.append(msg)
+        eng["openQuestions"] = openq
+        result = msg
+    elif verdict == "ok":
         done = status.setdefault("completedStages", [])
         if stage not in done:
             done.append(stage)
@@ -102,6 +127,7 @@ def collect_one(repo, project, fn):
             eng["draftPending"] = {"stage": None, "artifact": None,
                                    "createdAt": None, "confirmed": False}
         eng["blockedReasons"] = []
+        eng.pop("openQuestions", None)
         result = "collected %s -> advanced to %s" % (stage, status["currentStage"])
     elif verdict in ("partial", "failed"):
         reasons = eng.setdefault("blockedReasons", [])

@@ -64,6 +64,9 @@ def judge(item, status):
     dp = eng.get("draftPending") or {}
     if dp.get("stage") and dp.get("confirmed") is False:
         return False, "等确认 %s" % dp.get("stage")
+    reasons = eng.get("blockedReasons") or []
+    if reasons:
+        return False, "blocked: " + str(reasons[0])[:40]
     rh = eng.get("routeHealth") or {}
     if isinstance(rh.get("score"), (int, float)) and rh["score"] < 5:
         return False, "路线修正中 %s 分" % rh["score"]

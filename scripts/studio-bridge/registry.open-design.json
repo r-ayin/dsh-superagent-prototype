@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "projects": [
+    {
+      "id": "open-design",
+      "repo": "/home/ubuntu/coding/open-design",
+      "enabled": true,
+      "maxPerDay": 3,
+      "allowAutoDevelopment": false
+    }
+  ]
+}

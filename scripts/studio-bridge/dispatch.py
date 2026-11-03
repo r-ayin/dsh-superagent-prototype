@@ -141,6 +141,12 @@ def gate(project, status, repo, max_per_day, allow_auto_dev):
     rh = eng.get("routeHealth") or {}
     if isinstance(rh.get("score"), (int, float)) and rh["score"] < 5:
         return "route-correction:score=%s" % rh["score"]
+    reasons = eng.get("blockedReasons") or []
+    if reasons:
+        # 上一轮结果留下的阻塞（partial/failed 或 awaiting-decision）必须先由人处置，
+        # 否则同一阶段的任务书会被无限重投。
+        return "blocked:" + str(reasons[0])
+
     if rh.get("correctionPending") is True:
         return "correction-pending"
 

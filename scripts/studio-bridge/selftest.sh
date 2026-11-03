@@ -138,5 +138,43 @@ assert r.returncode==0
 assert "可自动推进" in r.stdout
 J
 
+echo "== 11. 门禁：OPEN_QUESTIONS>0 不推进、转 awaiting-decision =="
+W3=/tmp/studio-bridge-selftest3
+rm -rf "$W3"; mkdir -p "$W3/.planning"
+cat > "$W3/.planning/status.json" <<'J'
+{"currentStage":"requirements","completedStages":[],"lastUpdated":"2026-11-03T00:00:00+08:00",
+ "taskType":"enhancement","locked":false,"engine":{"autoAdvance":true,"stageArtifacts":{}}}
+J
+cat > "$W3/reg.json" <<'J'
+{"version":1,"projects":[{"id":"toy3","repo":"/tmp/studio-bridge-selftest3","enabled":true,"maxPerDay":6}]}
+J
+python3 "$HERE/dispatch.py" "$W3/reg.json" > /dev/null
+T3=$(ls "$W3/.planning/pending/"*.task.md 2>/dev/null | head -1)
+printf 'STATUS: ok\nOPEN_QUESTIONS: 3\n\n产出已写，但有 3 个问题要人拍板\n' > "${T3%.task.md}.result.md"
+python3 "$HERE/collect.py" "$W3/reg.json" > /dev/null
+python3 - "$W3/.planning/status.json" <<'J' && ok "OPEN_QUESTIONS>0 时停在原阶段并记 awaiting-decision" || bad "OPEN_QUESTIONS 门禁失效"
+import json,sys
+s=json.load(open(sys.argv[1]))
+assert s["currentStage"]=="requirements", s["currentStage"]
+assert s["engine"]["openQuestions"]==3, s["engine"].get("openQuestions")
+assert any("awaiting-decision" in r for r in s["engine"]["blockedReasons"]), s["engine"]["blockedReasons"]
+J
+
+echo "== 12. 门禁：有阻塞时 dispatch 不重投 =="
+OUT4=$(python3 "$HERE/dispatch.py" "$W3/reg.json")
+echo "$OUT4" | grep -q 'blocked:' && ok "阻塞态下不再重投任务书" || bad "阻塞态仍在重投"
+echo "$OUT4" | grep -q '"action": "dispatch"' && bad "仍产生了新任务书" || ok "未产生新任务书"
+
+echo "== 13. 清空阻塞后可恢复推进 =="
+python3 - "$W3/.planning/status.json" <<'J'
+import json,sys
+p=sys.argv[1]; s=json.load(open(p))
+s["engine"]["blockedReasons"]=[]
+s["engine"].pop("openQuestions",None)
+json.dump(s,open(p,"w"),ensure_ascii=False,indent=2)
+J
+OUT5=$(python3 "$HERE/dispatch.py" "$W3/reg.json")
+echo "$OUT5" | grep -q '"action": "dispatch"' && ok "人工清空阻塞后恢复投递" || bad "清空后仍不投递"
+
 echo
 if [ "$FAIL" -eq 0 ]; then echo "ALL PASS ($PASS checks, 0 failed)"; exit 0; else echo "FAILED: $FAIL of $((PASS+FAIL))"; exit 1; fi
